@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import client
 from main import FrameRequest
+from PixooRequest import PixooRequest
 if __name__ == "__main__":
 	clients = []
 	for i in range(3):
@@ -13,6 +14,13 @@ if __name__ == "__main__":
 		for j in range(5):
 			frame = FrameRequest(app_id=f"app_{i}", duration=5, pic_data=f"image_data_{i}_{j}")
 			client_instance.add_to_buffer(frame)
+		request = PixooRequest(
+			app_id=f"app_{i}",
+			duration=5,
+			function="set_brightness",
+			args=[50],
+		)
+		client_instance.add_to_buffer(request)
 
 	with ThreadPoolExecutor(max_workers=3) as executor:
 		futures = []

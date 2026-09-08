@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from queue import Queue
+from pixoo import Pixoo
 import asyncio
+from PixooRequest import PixooRequest
 
 class FrameRequest(BaseModel):
 	app_id: str
@@ -10,12 +11,18 @@ class FrameRequest(BaseModel):
 	pic_data: str
 
 class ChannelManager:
-	def __init__(self):
+	def __init__(self, pixoo_ip):
+		self.commands = {
+			"clear": self.pixoo.clear,
+			"clear_rgb": self.pixoo.clear_rgb,
+			"draw_character": self.pixoo.draw_character,
+			"draw_character_at_location_rbg": self.pixoo.draw_character_at_location_rgb,
+		}
 		self.channels = {}       # Channels 1-n: app_id -> FrameRequestQueue
 		self.channel_0 = []      # The Carousel: list of active app_ids
 		self.urgent_queue = asyncio.Queue() #
 		self.interrupt_event = asyncio.Event() #[cite: 1]
-
+		self.pixoo = Pixoo(pixoo_ip)
 	async def worker_loop(self):
 		carousel_index = 0
 		while True:
@@ -56,10 +63,32 @@ class ChannelManager:
 		if queue.empty():
 			print("Queue is empty, nothing to send.")
 			self.channel_0.remove(current_app)
+			del self.channels[current_app]
 			return
 		frame = await queue.get()
-		print(f"Pushing {frame.app_id}, {frame.duration}, {frame.pic_data} to Pixoo64")        
 
+		for function_name, args, kwargs in frame.functions:
+			if function_name in self.commands:
+				print(f"Calling {function_name}{tuple(args)} for {current_app} with {kwargs}")
+				self.commands[function_name](*args, **kwargs)
+			else:
+				print(f"Unknown function: {function_name}")
+		if isinstance(frame, PixooRequest):
+			print(f"Calling {frame.function}{tuple(frame.args)} for {frame.app_id} with {frame.kwargs}")
+		else:
+			print(f"Pushing {frame.app_id}, {frame.duration}, {frame.pic_data} to Pixoo64")
+
+	async def enqueue_request(self,request: PixooRequest):
+		try:
+			if request.app_id not in self.channel_0:
+				self.channel_0.append(request.app_id)
+				self.channels[request.app_id] = asyncio.Queue()
+			queue_item = request.functions
+		
+			await self.channels[request.app_id].put(queue_item)
+		except Exception as e:
+			return(f"Error enqueuing request: {e}")
+		return {"status": "request added to queue", "app_id": request.app_id, "functions_len": len(request.functions)}
 manager = ChannelManager()
 
 @asynccontextmanager
@@ -90,15 +119,6 @@ async def add_carousel_frame(frame: FrameRequest):
 
 	return {"status": "frame added to carousel"}
 
-@app.post("/api/v1/notify")
-async def push_notification(frame: FrameRequest):
-    # Add to channels
-		manager.channels[frame.app_id] = frame
-		
-		# Add to urgent queue
-		await manager.urgent_queue.put(frame)
-		
-		# Trigger interrupt
-		manager.interrupt_event.set() #[cite: 1]
-		
-		return {"status": "notification pushed"}
+@app.post("/api/v1/request")
+async def add_request(request: PixooRequest):
+	return await manager.enqueue_request(request)
