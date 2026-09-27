@@ -4,6 +4,8 @@ from pixoo import Pixoo
 
 from ..models import PixooRequest
 
+MAX_QUEUE_SIZE = 100
+
 
 class ChannelManager:
 	"""Owns all display state and dispatches PixooCommands to the device.
@@ -18,7 +20,7 @@ class ChannelManager:
 			"clear": self.pixoo.clear,
 			"clear_rgb": self.pixoo.clear_rgb,
 			"draw_character": self.pixoo.draw_character,
-			"draw_character_at_location_rbg": self.pixoo.draw_character_at_location_rgb,
+			"draw_character_at_location_rgb": self.pixoo.draw_character_at_location_rgb,
 			"draw_pixel_at_location_rgb": self.pixoo.draw_pixel_at_location_rgb,
 			"push": self.pixoo.push,
 		}
@@ -43,6 +45,7 @@ class ChannelManager:
 			# 1. Check for urgent notifications first
 			if not self.urgent_queue.empty():
 				request = await self.urgent_queue.get()
+				self.urgent_queue.task_done()
 				await self.send_to_pixoo(request)
 				await self.sleep_interruptible(request.duration, interruptable=False)
 				continue
@@ -52,6 +55,7 @@ class ChannelManager:
 				queue = self.channels.get(self.manual_app)
 				if queue and not queue.empty():
 					request = await queue.get()
+					queue.task_done()
 					await self.send_to_pixoo(request)
 					await self.sleep_interruptible(request.duration, interruptable=True)
 				else:
@@ -64,10 +68,12 @@ class ChannelManager:
 				queue = self.channels[current_app]
 				if not queue.empty():
 					request = await queue.get()
+					queue.task_done()
 					await self.send_to_pixoo(request)
-
-				await self.sleep_interruptible(request.duration, interruptable=True)
-				carousel_index = (carousel_index + 1) % len(self.channel_0)
+					await self.sleep_interruptible(request.duration, interruptable=True)
+					carousel_index = (carousel_index + 1) % len(self.channel_0)
+				else:
+					await asyncio.sleep(1)
 			else:
 				await asyncio.sleep(1)
 
@@ -100,12 +106,14 @@ class ChannelManager:
 		Returns:
 			None.
 		"""
+
 		for function in request.functions:
 			if function.name in self.commands:
-				print(f"Calling {function.name}{tuple(function.args)} for {request.app_id} with {function.kwargs}")
-				self.commands[function.name](*function.args, **function.kwargs)
+				print(f"[{request.app_id}] {function.name}(args={function.args}, kwargs={function.kwargs})")
+				await asyncio.to_thread(self.commands[function.name], *function.args, **function.kwargs)
 			else:
-				print(f"Unknown function: {function.name}")
+				print(f"[{request.app_id}] Unknown function: {function.name}")
+
 
 	async def enqueue_request(self, request: PixooRequest):
 		"""Add a PixooRequest to the appropriate app channel.
@@ -119,9 +127,14 @@ class ChannelManager:
 		try:
 			if request.app_id not in self.channel_0:
 				self.channel_0.append(request.app_id)
-				self.channels[request.app_id] = asyncio.Queue()
+				self.channels[request.app_id] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
 
-			await self.channels[request.app_id].put(request)
+			try:
+				self.channels[request.app_id].put_nowait(request)
+			except asyncio.QueueFull:
+				self.channels[request.app_id].get_nowait()
+				self.channels[request.app_id].task_done()
+				self.channels[request.app_id].put_nowait(request)
 		except Exception as e:
 			return f"Error enqueuing request: {e}"
 		return {"status": "request added to queue", "app_id": request.app_id, "functions_len": len(request.functions)}
