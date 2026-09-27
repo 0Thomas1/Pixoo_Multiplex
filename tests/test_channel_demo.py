@@ -9,7 +9,7 @@ HEADERS = {"X-API-Key": API_KEY}
 
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
-POSITIONS = [(1, 1), (2, 2)]
+POSITIONS = [(63, 1), (63, 2)]
 
 
 def make_frame(app_id, positions, color):

@@ -26,7 +26,7 @@ class ChannelManager:
 		self.channel_0 = []      # Carousel: ordered list of active app_ids
 		self.urgent_queue = asyncio.Queue()
 		self.interrupt_event = asyncio.Event()
-		self.mode = "carousel"   # "carousel" or "manual"
+		self.mode = "manual"   # "carousel" or "manual"
 		self.manual_app = None   # selected app in manual mode
 
 	async def worker_loop(self):
@@ -159,4 +159,5 @@ class ChannelManager:
 		if mode not in ("carousel", "manual"):
 			raise ValueError(f"Invalid mode: {mode}")
 		self.mode = mode
+		self.manual_app = None if mode == "carousel" else self.manual_app
 		return {"status": "mode set", "mode": self.mode}
