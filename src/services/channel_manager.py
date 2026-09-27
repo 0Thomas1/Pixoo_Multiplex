@@ -110,3 +110,21 @@ class ChannelManager:
 		except Exception as e:
 			return f"Error enqueuing request: {e}"
 		return {"status": "request added to queue", "app_id": request.app_id, "functions_len": len(request.functions)}
+
+	async def switch_channel(self, app_id: str):
+		"""Switch the carousel to show the specified app.
+
+		Args:
+			app_id: The app_id to switch to.
+
+		Returns:
+			Dict with switch confirmation and current carousel.
+
+		Raises:
+			ValueError: If the app_id is not in the carousel.
+		"""
+		if app_id not in self.channel_0:
+			raise ValueError(f"App '{app_id}' not in carousel")
+		self.channel_0.remove(app_id)
+		self.channel_0.insert(0, app_id)
+		return {"status": "switched", "app_id": app_id, "carousel": self.channel_0}

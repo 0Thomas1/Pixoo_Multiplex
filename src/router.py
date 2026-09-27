@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from .dependencies import get_manager
+from .dependencies import get_manager, verify_api_key
 from .models import PixooRequest
 from .services.channel_manager import ChannelManager
 
@@ -40,3 +40,28 @@ async def add_request(
 		Dict with status message and metadata.
 	"""
 	return await manager.enqueue_request(request)
+
+
+@router.post("/channel/switch")
+async def switch_channel(
+	app_id: str,
+	manager: ChannelManager = Depends(get_manager),
+	_api_key: str = Depends(verify_api_key),
+):
+	"""Switch the carousel to show the specified app. Requires authentication.
+
+	Args:
+		app_id: The app_id to switch to.
+		manager: Injected ChannelManager instance.
+		_api_key: Verified API key from X-API-Key header.
+
+	Returns:
+		Dict with switch confirmation and current carousel.
+
+	Raises:
+		HTTPException: 404 if the app_id is not in the carousel.
+	"""
+	try:
+		return await manager.switch_channel(app_id)
+	except ValueError as e:
+		raise HTTPException(status_code=404, detail=str(e))
