@@ -26,9 +26,14 @@ class ChannelManager:
 		self.channel_0 = []      # Carousel: ordered list of active app_ids
 		self.urgent_queue = asyncio.Queue()
 		self.interrupt_event = asyncio.Event()
+		self.mode = "manual"   # "carousel" or "manual"
+		self.manual_app = None   # selected app in manual mode
 
 	async def worker_loop(self):
-		"""Main loop: drains urgent queue first, then round-robins carousel channels.
+		"""Main loop: drains urgent queue first, then processes channels based on mode.
+
+		In carousel mode, round-robins through all apps.
+		In manual mode, only processes the selected app.
 
 		Returns:
 			None. Runs indefinitely until cancelled.
@@ -42,8 +47,18 @@ class ChannelManager:
 				await self.sleep_interruptible(request.duration, interruptable=False)
 				continue
 
-			# 2. Process Channel
-			#print(f"channel_0: {self.channel_0}")
+			# 2. Manual mode: only process the selected app
+			if self.mode == "manual" and self.manual_app:
+				queue = self.channels.get(self.manual_app)
+				if queue and not queue.empty():
+					request = await queue.get()
+					await self.send_to_pixoo(request)
+					await self.sleep_interruptible(request.duration, interruptable=True)
+				else:
+					await asyncio.sleep(1)
+				continue
+
+			# 3. Carousel mode: round-robin through all apps
 			if self.channel_0:
 				current_app = self.channel_0[carousel_index]
 				queue = self.channels[current_app]
@@ -112,19 +127,37 @@ class ChannelManager:
 		return {"status": "request added to queue", "app_id": request.app_id, "functions_len": len(request.functions)}
 
 	async def switch_channel(self, app_id: str):
-		"""Switch the carousel to show the specified app.
+		"""Switch to a specific app (manual mode).
 
 		Args:
 			app_id: The app_id to switch to.
 
 		Returns:
-			Dict with switch confirmation and current carousel.
+			Dict with switch confirmation and current mode.
 
 		Raises:
 			ValueError: If the app_id is not in the carousel.
 		"""
 		if app_id not in self.channel_0:
 			raise ValueError(f"App '{app_id}' not in carousel")
-		self.channel_0.remove(app_id)
-		self.channel_0.insert(0, app_id)
-		return {"status": "switched", "app_id": app_id, "carousel": self.channel_0}
+		self.mode = "manual"
+		self.manual_app = app_id
+		return {"status": "switched", "app_id": app_id, "mode": self.mode}
+
+	async def set_mode(self, mode: str):
+		"""Set the display mode.
+
+		Args:
+			mode: "carousel" or "manual".
+
+		Returns:
+			Dict with mode confirmation.
+
+		Raises:
+			ValueError: If mode is not "carousel" or "manual".
+		"""
+		if mode not in ("carousel", "manual"):
+			raise ValueError(f"Invalid mode: {mode}")
+		self.mode = mode
+		self.manual_app = None if mode == "carousel" else self.manual_app
+		return {"status": "mode set", "mode": self.mode}

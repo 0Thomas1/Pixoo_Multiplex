@@ -48,7 +48,7 @@ async def switch_channel(
 	manager: ChannelManager = Depends(get_manager),
 	_api_key: str = Depends(verify_api_key),
 ):
-	"""Switch the carousel to show the specified app. Requires authentication.
+	"""Switch to a specific app (manual mode). Requires authentication.
 
 	Args:
 		app_id: The app_id to switch to.
@@ -56,7 +56,7 @@ async def switch_channel(
 		_api_key: Verified API key from X-API-Key header.
 
 	Returns:
-		Dict with switch confirmation and current carousel.
+		Dict with switch confirmation and current mode.
 
 	Raises:
 		HTTPException: 404 if the app_id is not in the carousel.
@@ -65,3 +65,28 @@ async def switch_channel(
 		return await manager.switch_channel(app_id)
 	except ValueError as e:
 		raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/mode/set")
+async def set_mode(
+	mode: str,
+	manager: ChannelManager = Depends(get_manager),
+	_api_key: str = Depends(verify_api_key),
+):
+	"""Set the display mode (carousel or manual). Requires authentication.
+
+	Args:
+		mode: "carousel" or "manual".
+		manager: Injected ChannelManager instance.
+		_api_key: Verified API key from X-API-Key header.
+
+	Returns:
+		Dict with mode confirmation.
+
+	Raises:
+		HTTPException: 400 if mode is invalid.
+	"""
+	try:
+		return await manager.set_mode(mode)
+	except ValueError as e:
+		raise HTTPException(status_code=400, detail=str(e))
