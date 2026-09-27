@@ -12,6 +12,7 @@ class Settings(BaseSettings):
 	pixoo_ip: str | None = None
 	cors_origins: list[str] = ["*"]
 	log_level: str = "INFO"
+	api_key: str | None = None
 
 	class Config:
 		env_file = ".env"
