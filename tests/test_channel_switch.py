@@ -28,7 +28,7 @@ def test_switch_with_valid_key():
 	data = response.json()
 	assert data["status"] == "switched"
 	assert data["app_id"] == "app_beta"
-	assert data["carousel"][0] == "app_beta"
+	assert data["mode"] == "manual"
 	print("PASS: switch with valid key")
 
 
