@@ -43,7 +43,7 @@ class ChannelManager:
 				continue
 
 			# 2. Process Channel
-			print(f"channel_0: {self.channel_0}")
+			#print(f"channel_0: {self.channel_0}")
 			if self.channel_0:
 				current_app = self.channel_0[carousel_index]
 				queue = self.channels[current_app]
@@ -51,9 +51,8 @@ class ChannelManager:
 					request = await queue.get()
 					await self.send_to_pixoo(request)
 
-				# interrupted = await self.sleep_interruptible(request.duration, interruptable=True)
-				# if not interrupted:
-				# 		carousel_index = (carousel_index + 1) % len(self.channel_0)
+				await self.sleep_interruptible(request.duration, interruptable=True)
+				carousel_index = (carousel_index + 1) % len(self.channel_0)
 			else:
 				await asyncio.sleep(1)
 
