@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pydantic>=2
+pydantic-settings
+pixoo==0.9.2
+requests
+python-dotenv

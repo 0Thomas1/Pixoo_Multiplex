@@ -16,18 +16,15 @@ def get_manager(request: Request) -> ChannelManager:
 	return request.app.state.manager
 
 
-def verify_api_key(x_api_key: str = Header(None)) -> str:
+def verify_api_key(x_api_key: str = Header(None)) -> str | None:
 	"""Verify the X-API-Key header against the configured API key.
 
 	Args:
 		x_api_key: The API key from the X-API-Key header.
 
 	Returns:
-		The verified API key.
-
-	Raises:
-		HTTPException: 401 if the key is missing or invalid.
+		The verified API key, or None if missing/invalid.
 	"""
 	if not x_api_key or x_api_key != settings.api_key:
-		raise HTTPException(status_code=401, detail="Invalid or missing API key")
+		return None
 	return x_api_key

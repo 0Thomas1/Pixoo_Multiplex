@@ -2,6 +2,7 @@ import asyncio
 
 from pixoo import Pixoo
 
+from ..commands import DRAWING_COMMANDS, DEVICE_CONTROL_COMMANDS
 from ..models import PixooRequest
 
 MAX_QUEUE_SIZE = 100
@@ -16,14 +17,9 @@ class ChannelManager:
 
 	def __init__(self, pixoo_ip):
 		self.pixoo = Pixoo(pixoo_ip)
-		self.commands = {
-			"clear": self.pixoo.clear,
-			"clear_rgb": self.pixoo.clear_rgb,
-			"draw_character": self.pixoo.draw_character,
-			"draw_character_at_location_rgb": self.pixoo.draw_character_at_location_rgb,
-			"draw_pixel_at_location_rgb": self.pixoo.draw_pixel_at_location_rgb,
-			"push": self.pixoo.push,
-		}
+		all_commands = DRAWING_COMMANDS + DEVICE_CONTROL_COMMANDS
+		self.commands = {name: getattr(self.pixoo, name) for name in all_commands}
+		self.admin_commands = set(DEVICE_CONTROL_COMMANDS)
 		self.channels = {}       # app_id -> asyncio.Queue[PixooRequest]
 		self.channel_0 = []      # Carousel: ordered list of active app_ids
 		self.urgent_queue = asyncio.Queue()
@@ -125,6 +121,10 @@ class ChannelManager:
 			Dict with status message and metadata, or error string.
 		"""
 		try:
+			has_admin = any(f.name in self.admin_commands for f in request.functions)
+			if has_admin and not request.is_admin:
+				return {"status": "forbidden", "detail": "Device control commands require API key"}
+
 			if request.app_id not in self.channel_0:
 				self.channel_0.append(request.app_id)
 				self.channels[request.app_id] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)

@@ -23,7 +23,9 @@ class PixooRequest(BaseModel):
 		app_id: Identifier for the app sending the request.
 		functions: Ordered list of device commands to execute.
 		duration: Seconds to display before advancing (default 5).
+		is_admin: Whether the request is authorized to use device control commands.
 	"""
 	app_id: str
 	functions: list[Function] = Field(min_length=1)
 	duration: int = 5
+	is_admin: bool = False

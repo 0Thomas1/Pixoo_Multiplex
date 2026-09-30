@@ -29,16 +29,20 @@ async def get_status(manager: ChannelManager = Depends(get_manager)):
 async def add_request(
 	request: PixooRequest,
 	manager: ChannelManager = Depends(get_manager),
+	api_key: str | None = Depends(verify_api_key),
 ):
 	"""Accept a PixooRequest and enqueue it for display.
 
 	Args:
 		request: The PixooRequest to enqueue.
 		manager: Injected ChannelManager instance.
+		api_key: Verified API key from X-API-Key header, if provided.
 
 	Returns:
 		Dict with status message and metadata.
 	"""
+	if api_key:
+		request.is_admin = True
 	return await manager.enqueue_request(request)
 
 

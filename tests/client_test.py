@@ -6,6 +6,20 @@ from concurrent.futures import ThreadPoolExecutor
 from src.client import PixooClient
 from src.models import PixooRequest, Function
 
+
+def send_frames(client: PixooClient, app_id: str, count: int):
+	"""Send count frames from a client."""
+	results = []
+	for _ in range(count):
+		request = PixooRequest(
+			app_id=app_id,
+			functions=[Function(name="clear", args=[])],
+			duration=5,
+		)
+		results.append(client.send(request))
+	return results
+
+
 if __name__ == "__main__":
 	clients = []
 	for i in range(3):
@@ -14,21 +28,12 @@ if __name__ == "__main__":
 		port = 8000
 		client_instance = PixooClient(appid, host, port)
 		clients.append(client_instance)
-	for i, client_instance in enumerate(clients):
-		for j in range(5):
-			request = PixooRequest(
-				app_id=f"app_{i}",
-				functions=[Function(name="clear", args=[])],
-				duration=5,
-			)
-			client_instance.add_to_buffer(request)
 
 	with ThreadPoolExecutor(max_workers=3) as executor:
 		futures = []
-		for client_instance in clients:
-			futures.append(executor.submit(client_instance.send_buffered_requests))
+		for i, client_instance in enumerate(clients):
+			futures.append(executor.submit(send_frames, client_instance, f"app_{i}", 5))
 
 		for future in futures:
 			for result in future.result():
-				status_code, response_text, app_id = result
-				print(f"Client {app_id} received response: {status_code}, {response_text}")
+				print(f"Client received response: {result.status_code}, success={result.success}, data={result.data}")
