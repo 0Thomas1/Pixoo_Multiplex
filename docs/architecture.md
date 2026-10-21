@@ -17,10 +17,7 @@ Pixoo Worker is a FastAPI service that multiplexes multiple "apps" onto a single
                                              │ ChannelManager   │
                                              │                  │
                                              │ ┌──────────────┐ │
-                                             │ │ urgent_queue │ │  ← no producer (dead code)
-                                             │ └──────────────┘ │
-                                             │ ┌──────────────┐ │
-                                             │ │ channel_0    │ │  ← carousel order
+                                             │ │ carousel     │ │  ← carousel order
                                              │ │ [app_id...]  │ │
                                              │ └──────────────┘ │
                                              │ ┌──────────────┐ │
@@ -44,7 +41,7 @@ Pixoo Worker is a FastAPI service that multiplexes multiple "apps" onto a single
 
 1. Client sends `POST /api/v1/request` with a `PixooRequest` JSON body
 2. `ChannelManager.enqueue_request()` validates admin permissions, creates the app's queue on first use, and enqueues the request
-3. `worker_loop()` picks the next request based on mode (urgent → manual → carousel)
+3. `worker_loop()` picks the next request based on mode (manual → carousel)
 4. `send_to_pixoo()` iterates over `request.functions` and dispatches each to the device via the command allowlist
 5. The worker sleeps for `request.duration` seconds before processing the next request
 
@@ -53,45 +50,36 @@ Pixoo Worker is a FastAPI service that multiplexes multiple "apps" onto a single
 | State | Type | Description |
 |---|---|---|
 | `channels` | `dict[str, asyncio.Queue]` | Per-app FIFO of `PixooRequest` objects (max 100 per queue) |
-| `channel_0` | `list[str]` | Carousel: ordered list of active app_ids |
-| `urgent_queue` | `asyncio.Queue` | High-priority requests drained before all else |
-| `interrupt_event` | `asyncio.Event` | Signals the worker to wake early from a sleep |
-| `mode` | `str` | `"carousel"` or `"manual"` (default: `"manual"`) |
-| `manual_app` | `str \| None` | The selected app_id when in manual mode |
-| `commands` | `dict[str, Callable]` | Allowlist of device functions from `DRAWING_COMMANDS + DEVICE_CONTROL_COMMANDS` |
-| `admin_commands` | `set[str]` | Subset of commands requiring API key (`DEVICE_CONTROL_COMMANDS`) |
+| `carousel` | `list[str]` | Carousel: ordered list of active app_ids |
+| `display_mode` | `str` | `"carousel"` or `"manual"` (default: `"manual"`) |
+| `manual_app_id` | `str \| None` | The selected app_id when in manual mode |
+| `command_map` | `dict[str, Callable]` | Allowlist of device functions from `DRAWING_COMMANDS + DEVICE_CONTROL_COMMANDS` |
+| `admin_command_names` | `set[str]` | Subset of commands requiring API key (`DEVICE_CONTROL_COMMANDS`) |
 
 ## Worker Loop
 
 ```
 while True:
-    # 1. Urgent queue (highest priority)
-    if urgent_queue not empty:
-        request = urgent_queue.get()
-        send_to_pixoo(request)
-        sleep_interruptible(duration, interruptable=False)
-        continue
-
-    # 2. Manual mode: only process the selected app
-    if mode == "manual" and manual_app:
-        queue = channels[manual_app]
+    # Manual mode: only process the selected app
+    if display_mode == "manual" and manual_app_id:
+        queue = channels[manual_app_id]
         if queue not empty:
             request = queue.get()
             send_to_pixoo(request)
-            sleep_interruptible(duration, interruptable=True)
+            sleep(duration)
         else:
             sleep(1)
         continue
 
-    # 3. Carousel mode: round-robin through all apps
-    if channel_0 not empty:
-        current_app = channel_0[carousel_index]
+    # Carousel mode: round-robin through all apps
+    if carousel not empty:
+        current_app = carousel[carousel_index]
         queue = channels[current_app]
         if queue not empty:
             request = queue.get()
             send_to_pixoo(request)
-            sleep_interruptible(duration, interruptable=True)
-            carousel_index = (carousel_index + 1) % len(channel_0)
+            sleep(duration)
+            carousel_index = (carousel_index + 1) % len(carousel)
         else:
             sleep(1)
     else:
@@ -100,15 +88,7 @@ while True:
 
 ### Carousel Index
 
-The `carousel_index` is advanced after each successful dequeue in carousel mode (line 70 of `channel_manager.py`). It wraps around using modulo arithmetic. This means the carousel does rotate through apps as designed.
-
-### Urgent Queue — Dead Code
-
-The `urgent_queue` is checked at the top of every worker loop iteration, but **no code path ever enqueues to it**. There is no API endpoint, no internal mechanism, and no producer of any kind. The queue is always empty, making this branch dead code. To activate it, you would need to add a producer (e.g., a `POST /api/v1/urgent` endpoint or an internal trigger).
-
-### Interrupt Event — Dead Code
-
-The `interrupt_event` is never `.set()` anywhere in the codebase. The `sleep_interruptible()` method checks it, but since it is never set, the worker always sleeps for the full duration. This is closely related to the urgent queue: the intended design was likely for urgent requests to set the event and preempt the current frame.
+The `carousel_index` is advanced after each successful dequeue in carousel mode. It wraps around using modulo arithmetic. This means the carousel does rotate through apps as designed.
 
 ## Command Allowlist
 
@@ -189,7 +169,7 @@ The API key flow uses a FastAPI dependency:
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/v1/status` | No | Get server status (channels, carousel, urgent queue size) |
+| `GET` | `/api/v1/status` | No | Get server status (channels, carousel) |
 | `POST` | `/api/v1/request` | Optional | Enqueue a PixooRequest (admin key required for device control commands) |
 | `POST` | `/api/v1/channel/switch` | Yes | Switch to a specific app (manual mode) |
 | `POST` | `/api/v1/mode/set` | Yes | Set display mode (`"carousel"` or `"manual"`) |

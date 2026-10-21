@@ -56,11 +56,11 @@ Single package, flat layout, no build step. `Notes.md` holds the (truncated) des
 
 - `channels: {app_id -> asyncio.Queue}` — per-app FIFO of `PixooRequest` objects (max 100).
   When full, `enqueue_request` drops the oldest queued request to make room for the new one.
-- `channel_0: [app_id, ...]` — the carousel: round-robin order shown on the one screen.
-- `urgent_queue` — drained first, intended to preempt a long frame.
-- `interrupt_event` — asyncio.Event to wake the worker early.
-- `mode` — `"carousel"` or `"manual"` (defaults to `"manual"`).
-- `manual_app` — the selected app in manual mode; `None` until `/channel/switch` is called.
+- `carousel: [app_id, ...]` — the carousel: round-robin order shown on the one screen.
+- `display_mode` — `"carousel"` or `"manual"` (defaults to `"manual"`).
+- `manual_app_id` — the selected app in manual mode; `None` until `/channel/switch` is called.
+- `command_map` — allowlist mapping command names to Pixoo methods.
+- `admin_command_names` — subset of commands requiring API key.
 - `worker_loop()` is started as a task in the FastAPI `lifespan` and cancelled on shutdown.
 - Single ingress route: `POST /api/v1/request` takes a `PixooRequest`
   (`app_id`/`functions: list[Function]`/`duration`/`is_admin`, each `Function` = `name`/`args`/`kwargs`).
@@ -79,16 +79,14 @@ otherwise the worker prints `Unknown function`.
 
 ### Unfinished plumbing — do not assume the pipeline works
 
-- `urgent_queue` has no producer and `interrupt_event` is never `.set()`, so the preemption path
-  is dead code.
 - `/channel/switch` and `/mode/set` declare `verify_api_key` as a dependency but assign it to
   `_api_key` (unused). `verify_api_key` returns `None` for a missing/wrong key and never raises,
   so those endpoints return 200 without a key. `tests/test_channel_switch.py` and
   `tests/test_mode.py` assert 401s and therefore fail as written — not a regression to chase.
 - Admin commands without a key are rejected as HTTP **200** with `{"status": "forbidden"}`,
   not 403 (`enqueue_request`).
-- Default `mode == "manual"` while `manual_app is None`; the manual branch needs a non-None
-  `manual_app`, so out of the box the worker round-robins the carousel until a switch happens.
+- Default `display_mode == "manual"` while `manual_app_id is None`; the manual branch needs a non-None
+  `manual_app_id`, so out of the box the worker round-robins the carousel until a switch happens.
 - `WorkerQueue` in `src/utils.py` is defined but not used.
 
 ## Conventions

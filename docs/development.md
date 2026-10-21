@@ -140,5 +140,4 @@ DEVICE_CONTROL_COMMANDS = [
 
 ## Known Issues
 
-- **Urgent queue**: No producer exists; `interrupt_event` is never set — preemption path is dead code.
 - **Command typo**: `draw_character_at_location_rbg` has a typo (should be `rgb`) but matches the library method name.

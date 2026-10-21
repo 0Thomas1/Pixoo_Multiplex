@@ -15,7 +15,6 @@ def test_status_endpoint():
 	assert data["status"] == "running"
 	assert "channels" in data
 	assert "carousel" in data
-	assert "urgent_queue_size" in data
 	print("PASS: GET /api/v1/status")
 
 

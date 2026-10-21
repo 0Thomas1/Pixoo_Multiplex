@@ -129,7 +129,7 @@ See `src/commands.py` for the full list.
 ```python
 # Get server status
 status = client.get_status()
-print(status.data)  # {"status": "running", "channels": [...], "carousel": [...], "urgent_queue_size": 0}
+print(status.data)  # {"status": "running", "channels": [...], "carousel": [...]}
 
 # Switch to a specific app (manual mode)
 client.switch_channel("my_app")
@@ -159,8 +159,7 @@ Base URL: `http://localhost:8000`
 {
   "status": "running",
   "channels": ["app_0", "app_1"],
-  "carousel": ["app_0", "app_1"],
-  "urgent_queue_size": 0
+  "carousel": ["app_0", "app_1"]
 }
 ```
 
@@ -261,7 +260,6 @@ docs/
 
 ## Known Issues
 
-- **Urgent queue**: No producer exists; `interrupt_event` is never set — preemption path is dead code
 - **API key enforcement gap**: `/channel/switch` and `/mode/set` declare `verify_api_key` as a dependency but assign it to `_api_key` (unused), so the key is not actually validated on those endpoints
 - **WorkerQueue unused**: `src/utils.py` defines a priority queue that is not wired into the worker loop
 

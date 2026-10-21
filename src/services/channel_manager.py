@@ -22,13 +22,11 @@ class ChannelManager:
 		self.admin_command_names = set(DEVICE_CONTROL_COMMANDS)
 		self.channels = {}       # app_id -> asyncio.Queue[PixooRequest]
 		self.carousel = []      # Carousel: ordered list of active app_ids
-		self.urgent_queue = asyncio.Queue()
-		self.interrupt_event = asyncio.Event()
 		self.display_mode = "manual"   # "carousel" or "manual"
 		self.manual_app_id = None   # selected app in manual mode
 
 	async def worker_loop(self):
-		"""Main loop: drains urgent queue first, then processes channels based on mode.
+		"""Main loop: processes channels based on mode.
 
 		In carousel mode, round-robins through all apps.
 		In manual mode, only processes the selected app.
@@ -38,27 +36,19 @@ class ChannelManager:
 		"""
 		carousel_index = 0
 		while True:
-			# 1. Check for urgent notifications first
-			if not self.urgent_queue.empty():
-				request = await self.urgent_queue.get()
-				self.urgent_queue.task_done()
-				await self.send_to_pixoo(request)
-				await self.sleep_interruptible(request.duration, interruptable=False)
-				continue
-
-			# 2. Manual mode: only process the selected app
+			# Manual mode: only process the selected app
 			if self.display_mode == "manual" and self.manual_app_id:
 				queue = self.channels.get(self.manual_app_id)
 				if queue and not queue.empty():
 					request = await queue.get()
 					queue.task_done()
 					await self.send_to_pixoo(request)
-					await self.sleep_interruptible(request.duration, interruptable=True)
+					await asyncio.sleep(request.duration)
 				else:
 					await asyncio.sleep(1)
 				continue
 
-			# 3. Carousel mode: round-robin through all apps
+			# Carousel mode: round-robin through all apps
 			if self.carousel:
 				current_app = self.carousel[carousel_index]
 				queue = self.channels[current_app]
@@ -66,32 +56,14 @@ class ChannelManager:
 					request = await queue.get()
 					queue.task_done()
 					await self.send_to_pixoo(request)
-					await self.sleep_interruptible(request.duration, interruptable=True)
+					await asyncio.sleep(request.duration)
 					carousel_index = (carousel_index + 1) % len(self.carousel)
 				else:
 					await asyncio.sleep(1)
 			else:
 				await asyncio.sleep(1)
 
-	async def sleep_interruptible(self, duration: int, interruptable: bool):
-		"""Sleep for a duration, optionally waking early on interrupt.
 
-		Args:
-			duration: Seconds to sleep.
-			interruptable: If True, wake early when interrupt_event is set.
-
-		Returns:
-			True if interrupted, False if the full duration elapsed.
-		"""
-		if not interruptable:
-			await asyncio.sleep(duration)
-			return False
-		try:
-			await asyncio.wait_for(self.interrupt_event.wait(), timeout=duration)
-			self.interrupt_event.clear()
-			return True
-		except asyncio.TimeoutError:
-			return False
 
 	async def send_to_pixoo(self, request: PixooRequest):
 		"""Execute all functions in a PixooRequest against the device.

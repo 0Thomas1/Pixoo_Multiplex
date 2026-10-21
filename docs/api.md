@@ -30,8 +30,7 @@ Get current server status. No authentication required.
 {
   "status": "running",
   "channels": ["app_0", "app_1"],
-  "carousel": ["app_0", "app_1"],
-  "urgent_queue_size": 0
+  "carousel": ["app_0", "app_1"]
 }
 ```
 
@@ -40,7 +39,6 @@ Get current server status. No authentication required.
 | `status` | string | Always `"running"` |
 | `channels` | list[string] | Active app IDs with queued requests |
 | `carousel` | list[string] | Round-robin display order |
-| `urgent_queue_size` | integer | Number of pending urgent requests |
 
 ---
 
