@@ -18,14 +18,14 @@ class ChannelManager:
 	def __init__(self, pixoo_ip):
 		self.pixoo = Pixoo(pixoo_ip)
 		all_commands = DRAWING_COMMANDS + DEVICE_CONTROL_COMMANDS
-		self.commands = {name: getattr(self.pixoo, name) for name in all_commands}
-		self.admin_commands = set(DEVICE_CONTROL_COMMANDS)
+		self.command_map = {name: getattr(self.pixoo, name) for name in all_commands}
+		self.admin_command_names = set(DEVICE_CONTROL_COMMANDS)
 		self.channels = {}       # app_id -> asyncio.Queue[PixooRequest]
-		self.channel_0 = []      # Carousel: ordered list of active app_ids
+		self.carousel = []      # Carousel: ordered list of active app_ids
 		self.urgent_queue = asyncio.Queue()
 		self.interrupt_event = asyncio.Event()
-		self.mode = "manual"   # "carousel" or "manual"
-		self.manual_app = None   # selected app in manual mode
+		self.display_mode = "manual"   # "carousel" or "manual"
+		self.manual_app_id = None   # selected app in manual mode
 
 	async def worker_loop(self):
 		"""Main loop: drains urgent queue first, then processes channels based on mode.
@@ -47,8 +47,8 @@ class ChannelManager:
 				continue
 
 			# 2. Manual mode: only process the selected app
-			if self.mode == "manual" and self.manual_app:
-				queue = self.channels.get(self.manual_app)
+			if self.display_mode == "manual" and self.manual_app_id:
+				queue = self.channels.get(self.manual_app_id)
 				if queue and not queue.empty():
 					request = await queue.get()
 					queue.task_done()
@@ -59,15 +59,15 @@ class ChannelManager:
 				continue
 
 			# 3. Carousel mode: round-robin through all apps
-			if self.channel_0:
-				current_app = self.channel_0[carousel_index]
+			if self.carousel:
+				current_app = self.carousel[carousel_index]
 				queue = self.channels[current_app]
 				if not queue.empty():
 					request = await queue.get()
 					queue.task_done()
 					await self.send_to_pixoo(request)
 					await self.sleep_interruptible(request.duration, interruptable=True)
-					carousel_index = (carousel_index + 1) % len(self.channel_0)
+					carousel_index = (carousel_index + 1) % len(self.carousel)
 				else:
 					await asyncio.sleep(1)
 			else:
@@ -104,9 +104,9 @@ class ChannelManager:
 		"""
 
 		for function in request.functions:
-			if function.name in self.commands:
+			if function.name in self.command_map:
 				print(f"[{request.app_id}] {function.name}(args={function.args}, kwargs={function.kwargs})")
-				await asyncio.to_thread(self.commands[function.name], *function.args, **function.kwargs)
+				await asyncio.to_thread(self.command_map[function.name], *function.args, **function.kwargs)
 			else:
 				print(f"[{request.app_id}] Unknown function: {function.name}")
 
@@ -121,12 +121,12 @@ class ChannelManager:
 			Dict with status message and metadata, or error string.
 		"""
 		try:
-			has_admin = any(f.name in self.admin_commands for f in request.functions)
+			has_admin = any(f.name in self.admin_command_names for f in request.functions)
 			if has_admin and not request.is_admin:
 				return {"status": "forbidden", "detail": "Device control commands require API key"}
 
-			if request.app_id not in self.channel_0:
-				self.channel_0.append(request.app_id)
+			if request.app_id not in self.carousel:
+				self.carousel.append(request.app_id)
 				self.channels[request.app_id] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
 
 			try:
@@ -151,11 +151,11 @@ class ChannelManager:
 		Raises:
 			ValueError: If the app_id is not in the carousel.
 		"""
-		if app_id not in self.channel_0:
+		if app_id not in self.carousel:
 			raise ValueError(f"App '{app_id}' not in carousel")
-		self.mode = "manual"
-		self.manual_app = app_id
-		return {"status": "switched", "app_id": app_id, "mode": self.mode}
+		self.display_mode = "manual"
+		self.manual_app_id = app_id
+		return {"status": "switched", "app_id": app_id, "mode": self.display_mode}
 
 	async def set_mode(self, mode: str):
 		"""Set the display mode.
@@ -171,6 +171,6 @@ class ChannelManager:
 		"""
 		if mode not in ("carousel", "manual"):
 			raise ValueError(f"Invalid mode: {mode}")
-		self.mode = mode
-		self.manual_app = None if mode == "carousel" else self.manual_app
-		return {"status": "mode set", "mode": self.mode}
+		self.display_mode = mode
+		self.manual_app_id = None if mode == "carousel" else self.manual_app_id
+		return {"status": "mode set", "mode": self.display_mode}
