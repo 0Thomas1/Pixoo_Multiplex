@@ -2,6 +2,26 @@
 
 FastAPI service that multiplexes multiple client applications onto a single 64x64 Pixoo64 LED display.
 
+## Why This Exists
+
+The Divoom Pixoo 64 is a popular 64x64 pixel display for homelabs and smart home setups. While Divoom's mobile app provides proprietary cloud channels, developers building custom integrations must use the device's **local HTTP WebAPI (`http://<device-ip>/post`)**.
+
+However, the native local WebAPI is **single-tenant, unbuffered, and non-transactional**:
+
+- **No Multi-Source Coordination**: The device exposes a single, shared frame buffer in memory with no transaction boundaries. If multiple independent scripts or services (e.g., Home Assistant, a crypto ticker, and a weather widget) send draw commands concurrently, their network calls interleave. Pixels, text coordinates, and buffer clears collide, resulting in visual tearing, broken fonts, and screen flicker.
+- **No Native Scheduling or Queueing**: The hardware has no concept of app rotation, display duration, or frame buffering. Whichever client makes an HTTP request last simply hijacks the display.
+- **No Priority Preemption**: Critical real-time events (such as a smart doorbell ring, security sensor trigger, or CI/CD build failure) cannot temporarily interrupt passive ambient dashboards without permanently breaking their update loops.
+
+**Pixoo Multiplex** solves this by acting as a smart display server and arbitration middleware between your microservices and the physical screen:
+
+- **Isolated Virtual Channels**: Every client application connects to its own dedicated, bounded FIFO queue (`MAX_QUEUE_SIZE = 100` with drop-oldest backpressure).
+- **Fair Carousel Scheduling**: Automatically round-robins across active applications, allocating screen time according to each app's requested display duration.
+- **Atomic Frame Transactions**: The client library buffers drawing commands locally and transmits them across the network as a single atomic `PixooRequest`, guaranteeing zero draw command interleaving across apps.
+- **Priority Preemption**: High-priority urgent requests (gated via API key) immediately wake the active sleep timer, render the alert for its duration, and cleanly advance the carousel to the next app in sequence to prevent stale re-renders.
+- **Manual Mode Locking**: Lock the display onto a single app on demand (via REST endpoint or client method) and resume carousel rotation whenever ready.
+
+---
+
 ## Features
 
 - **Multi-App Scheduling**: Display multiple applications on a single screen via round-robin carousel or lock onto a single app using manual mode.
