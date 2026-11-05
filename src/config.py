@@ -1,3 +1,4 @@
+from pydantic import Field, AliasChoices
 from pydantic_settings import BaseSettings
 
 
@@ -10,7 +11,15 @@ class Settings(BaseSettings):
 		log_level: Logging level for the application.
 	"""
 	pixoo_ip: str | None = None
-	pixoo_simulated: bool = False
+	pixoo_simulated: bool = Field(
+		default=False,
+		validation_alias=AliasChoices(
+			"pixoo_simulated",
+			"simulation",
+			"simulated",
+			"pixoo_simulation",
+		),
+	)
 	cors_origins: list[str] = ["*"]
 	log_level: str = "INFO"
 	api_key: str | None = None

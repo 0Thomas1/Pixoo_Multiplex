@@ -19,6 +19,7 @@ async def get_status(manager: ChannelManager = Depends(get_manager)):
 	"""
 	return {
 		"status": "running",
+		"simulated": manager.simulated,
 		"mode": manager.mode,
 		"manual_app": manager.manual_app,
 		"apps": list(manager.app_queues.keys()),

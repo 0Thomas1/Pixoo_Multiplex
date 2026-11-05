@@ -33,7 +33,10 @@ async def lifespan(app: FastAPI):
 	)
 	app.state.manager = manager
 	task = asyncio.create_task(manager.worker_loop())
-	logger.info("Worker loop started")
+	if settings.pixoo_simulated:
+		logger.info("Worker loop started in SIMULATED mode (headless mock, no hardware required)")
+	else:
+		logger.info(f"Worker loop started in PHYSICAL mode (device IP: {settings.pixoo_ip or 'auto-discovery'})")
 	yield
 	task.cancel()
 	logger.info("Worker loop stopped")

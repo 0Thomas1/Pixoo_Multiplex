@@ -38,8 +38,7 @@ class ChannelManager:
 		if self.simulated:
 			import pixoo.objects.pixoo
 			pixoo.objects.pixoo.Simulator = HeadlessSimulator
-			if not target_ip:
-				target_ip = "127.0.0.1"
+			target_ip = "127.0.0.1"  # Simulation strictly overrides any physical IP
 		self.pixoo = Pixoo(target_ip, simulated=simulated)
 		all_commands = DRAWING_COMMANDS + DEVICE_CONTROL_COMMANDS
 		self.commands = {name: getattr(self.pixoo, name) for name in all_commands}
@@ -164,6 +163,9 @@ class ChannelManager:
 					logger.error(f"[{request.app_id}] Error executing {function.name}: {e}")
 			else:
 				print(f"[{request.app_id}] Unknown function: {function.name}")
+
+		if self.simulated:
+			logger.info(f"[{request.app_id}] Rendered simulated frame (duration={request.duration}s, functions={len(request.functions)})")
 
 
 	async def enqueue_request(self, request: PixooRequest):
