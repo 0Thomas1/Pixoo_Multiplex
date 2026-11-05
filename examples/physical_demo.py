@@ -142,7 +142,7 @@ class PhysicalDemoRunner:
 			.clear()
 			.fill_rgb(*RED_BG)
 			.draw_text("! ALERT !", 6, 18, *WHITE)
-			.draw_text("HIGH PRIO", 4, 38, *GOLD)
+			.draw_text("HIGH PRIORITY", 4, 38, *GOLD)
 			.push(duration=3, urgent=True)
 		)
 
@@ -206,6 +206,12 @@ class PhysicalDemoRunner:
 			print("\nDemo interrupted by user.")
 		finally:
 			self.running = False
+			print("Restoring display to native clock face...")
+			try:
+				self.admin_client.set_mode("carousel")
+				self.admin_client.set_channel(0)
+			except Exception as e:
+				print(f"Cleanup error: {e}")
 			print("Demo ended.")
 
 

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from fastapi import HTTPException
 
 from pixoo import Pixoo
@@ -46,14 +47,15 @@ class ChannelManager:
 		self.channel_0 = []      # Carousel: ordered list of active app_ids
 		self.urgent_queue = asyncio.Queue()
 		self.interrupt_event = asyncio.Event()
-		self.mode = "manual"   # "carousel" or "manual"
+		self.mode = "carousel"   # "carousel" or "manual"
 		self.manual_app = None   # selected app in manual mode
+		self.last_manual_active_time = time.time()
 
 	async def worker_loop(self):
 		"""Main loop: drains urgent queue first, then processes channels based on mode.
 
-		In carousel mode, round-robins through all apps.
-		In manual mode, only processes the selected app.
+		In carousel mode, round-robins through all apps, skipping idle queues.
+		In manual mode, only processes the selected app, auto-reverting to carousel on idle timeout.
 
 		Returns:
 			None. Runs indefinitely until cancelled.
@@ -76,26 +78,38 @@ class ChannelManager:
 				if queue and not queue.empty():
 					request = await queue.get()
 					queue.task_done()
+					self.last_manual_active_time = time.time()
 					await self.send_to_pixoo(request)
 					await self.sleep_interruptible(request.duration, interruptable=True)
+					continue
 				else:
-					await asyncio.sleep(1)
-				continue
+					# Check manual lease timeout (30s)
+					if time.time() - self.last_manual_active_time > 30:
+						logger.info(f"Manual mode lease expired for '{self.manual_app}'. Reverting to carousel.")
+						self.mode = "carousel"
+						self.manual_app = None
+					else:
+						await asyncio.sleep(0.2)
+						continue
 
-			# 3. Carousel mode: round-robin through all apps
+			# 3. Carousel mode: round-robin through all apps, skipping idle apps
 			if self.channel_0:
-				current_app = self.channel_0[carousel_index]
-				queue = self.channels[current_app]
-				if not queue.empty():
-					request = await queue.get()
-					queue.task_done()
-					await self.send_to_pixoo(request)
-					await self.sleep_interruptible(request.duration, interruptable=True)
+				found = False
+				for _ in range(len(self.channel_0)):
+					current_app = self.channel_0[carousel_index]
 					carousel_index = (carousel_index + 1) % len(self.channel_0)
-				else:
-					await asyncio.sleep(1)
+					queue = self.channels.get(current_app)
+					if queue and not queue.empty():
+						request = await queue.get()
+						queue.task_done()
+						await self.send_to_pixoo(request)
+						await self.sleep_interruptible(request.duration, interruptable=True)
+						found = True
+						break
+				if not found:
+					await asyncio.sleep(0.5)
 			else:
-				await asyncio.sleep(1)
+				await asyncio.sleep(0.5)
 
 	async def sleep_interruptible(self, duration: int, interruptable: bool):
 		"""Sleep for a duration, optionally waking early on interrupt.
@@ -131,7 +145,11 @@ class ChannelManager:
 			if function.name in self.commands:
 				print(f"[{request.app_id}] {function.name}(args={function.args}, kwargs={function.kwargs})")
 				try:
-					await asyncio.to_thread(self.commands[function.name], *function.args, **function.kwargs)
+					cmd = self.commands[function.name]
+					if function.name == "push" or function.name in self.admin_commands:
+						await asyncio.to_thread(cmd, *function.args, **function.kwargs)
+					else:
+						cmd(*function.args, **function.kwargs)
 				except Exception as e:
 					logger.error(f"[{request.app_id}] Error executing {function.name}: {e}")
 			else:
@@ -196,6 +214,7 @@ class ChannelManager:
 			raise ValueError(f"App '{app_id}' not in carousel")
 		self.mode = "manual"
 		self.manual_app = app_id
+		self.last_manual_active_time = time.time()
 		return {"status": "switched", "app_id": app_id, "mode": self.mode}
 
 	async def set_mode(self, mode: str):
