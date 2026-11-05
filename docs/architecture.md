@@ -47,8 +47,8 @@ Pixoo Worker is a FastAPI service that multiplexes multiple "apps" onto a single
 
 | State | Type | Description |
 |---|---|---|
-| `channels` | `dict[str, asyncio.Queue]` | Per-app FIFO of `PixooRequest` objects (maxsize=100) |
-| `channel_0` | `list[str]` | Carousel: ordered list of active app_ids |
+| `app_queues` | `dict[str, asyncio.Queue]` | Per-app FIFO of `PixooRequest` objects (maxsize=100) |
+| `carousel_apps` | `list[str]` | Carousel: ordered list of active app_ids |
 | `urgent_queue` | `asyncio.Queue` | High-priority requests drained before carousel |
 | `interrupt_event` | `asyncio.Event` | Signals the worker to wake early on urgent request |
 | `mode` | `str` | Display mode: `"carousel"` or `"manual"` |
@@ -70,8 +70,8 @@ while True:
         sleep(request.duration, interruptable=True)
         continue
 
-    if channel_0 not empty:
-        current_app = channel_0[carousel_index]
+    if carousel_apps not empty:
+        current_app = carousel_apps[carousel_index]
         process current_app request
         sleep(request.duration, interruptable=True)
         advance carousel_index

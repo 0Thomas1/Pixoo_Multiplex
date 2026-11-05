@@ -21,8 +21,9 @@ async def get_status(manager: ChannelManager = Depends(get_manager)):
 		"status": "running",
 		"mode": manager.mode,
 		"manual_app": manager.manual_app,
-		"channels": list(manager.channels.keys()),
-		"carousel": manager.channel_0,
+		"apps": list(manager.app_queues.keys()),
+		"channels": list(manager.app_queues.keys()),  # Backward-compatibility alias
+		"carousel": manager.carousel_apps,
 		"urgent_queue_size": manager.urgent_queue.qsize(),
 	}
 

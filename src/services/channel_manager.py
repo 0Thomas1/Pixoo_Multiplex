@@ -44,13 +44,22 @@ class ChannelManager:
 		all_commands = DRAWING_COMMANDS + DEVICE_CONTROL_COMMANDS
 		self.commands = {name: getattr(self.pixoo, name) for name in all_commands}
 		self.admin_commands = set(DEVICE_CONTROL_COMMANDS)
-		self.channels = {}       # app_id -> asyncio.Queue[PixooRequest]
-		self.channel_0 = []      # Carousel: ordered list of active app_ids
+		self.app_queues = {}     # app_id -> asyncio.Queue[PixooRequest]
+		self.carousel_apps = []  # Ordered list of app_ids in carousel rotation
 		self.urgent_queue = asyncio.Queue()
 		self.interrupt_event = asyncio.Event()
 		self.mode = "carousel"   # "carousel" or "manual"
 		self.manual_app = None   # selected app in manual mode
 		self.last_manual_active_time = time.time()
+
+	# Backward-compatibility property aliases
+	@property
+	def channels(self):
+		return self.app_queues
+
+	@property
+	def channel_0(self):
+		return self.carousel_apps
 
 	async def worker_loop(self):
 		"""Main loop: drains urgent queue first, then processes channels based on mode.
@@ -69,13 +78,13 @@ class ChannelManager:
 				self.urgent_queue.task_done()
 				await self.send_to_pixoo(request)
 				await self.sleep_interruptible(request.duration, interruptable=False)
-				if self.channel_0:
-					carousel_index = (carousel_index + 1) % len(self.channel_0)
+				if self.carousel_apps:
+					carousel_index = (carousel_index + 1) % len(self.carousel_apps)
 				continue
 
 			# 2. Manual mode: only process the selected app
 			if self.mode == "manual" and self.manual_app:
-				queue = self.channels.get(self.manual_app)
+				queue = self.app_queues.get(self.manual_app)
 				if queue and not queue.empty():
 					request = await queue.get()
 					queue.task_done()
@@ -94,12 +103,12 @@ class ChannelManager:
 						continue
 
 			# 3. Carousel mode: round-robin through all apps, skipping idle apps
-			if self.channel_0:
+			if self.carousel_apps:
 				found = False
-				for _ in range(len(self.channel_0)):
-					current_app = self.channel_0[carousel_index]
-					carousel_index = (carousel_index + 1) % len(self.channel_0)
-					queue = self.channels.get(current_app)
+				for _ in range(len(self.carousel_apps)):
+					current_app = self.carousel_apps[carousel_index]
+					carousel_index = (carousel_index + 1) % len(self.carousel_apps)
+					queue = self.app_queues.get(current_app)
 					if queue and not queue.empty():
 						request = await queue.get()
 						queue.task_done()
@@ -171,17 +180,16 @@ class ChannelManager:
 			raise HTTPException(status_code=403, detail="Device control commands require API key")
 
 		try:
-
-			if request.app_id not in self.channel_0:
-				self.channel_0.append(request.app_id)
-				self.channels[request.app_id] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
+			if request.app_id not in self.carousel_apps:
+				self.carousel_apps.append(request.app_id)
+				self.app_queues[request.app_id] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
 
 			try:
-				self.channels[request.app_id].put_nowait(request)
+				self.app_queues[request.app_id].put_nowait(request)
 			except asyncio.QueueFull:
-				self.channels[request.app_id].get_nowait()
-				self.channels[request.app_id].task_done()
-				self.channels[request.app_id].put_nowait(request)
+				self.app_queues[request.app_id].get_nowait()
+				self.app_queues[request.app_id].task_done()
+				self.app_queues[request.app_id].put_nowait(request)
 		except Exception as e:
 			return f"Error enqueuing request: {e}"
 		return {"status": "request added to queue", "app_id": request.app_id, "functions_len": len(request.functions)}
@@ -211,7 +219,7 @@ class ChannelManager:
 		Raises:
 			ValueError: If the app_id is not in the carousel.
 		"""
-		if app_id not in self.channel_0:
+		if app_id not in self.carousel_apps:
 			raise ValueError(f"App '{app_id}' not in carousel")
 		self.mode = "manual"
 		self.manual_app = app_id

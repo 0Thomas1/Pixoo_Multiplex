@@ -11,10 +11,10 @@ async def test_carousel_skips_empty_queues():
 	req_b = PixooRequest(app_id="app_b", functions=[Function(name="clear", args=[])], duration=1)
 	
 	# Only enqueue for app_b, leave app_a with empty queue
-	manager.channel_0 = ["app_a", "app_b"]
-	manager.channels["app_a"] = asyncio.Queue()
-	manager.channels["app_b"] = asyncio.Queue()
-	await manager.channels["app_b"].put(req_b)
+	manager.carousel_apps = ["app_a", "app_b"]
+	manager.app_queues["app_a"] = asyncio.Queue()
+	manager.app_queues["app_b"] = asyncio.Queue()
+	await manager.app_queues["app_b"].put(req_b)
 
 	processed = []
 	async def mock_send(req):
@@ -40,7 +40,7 @@ async def test_manual_mode_auto_reverts_on_idle():
 	manager = ChannelManager("127.0.0.1", simulated=True)
 	manager.mode = "manual"
 	manager.manual_app = "app_manual"
-	manager.channels["app_manual"] = asyncio.Queue()
+	manager.app_queues["app_manual"] = asyncio.Queue()
 	# Set last active time to 35 seconds ago
 	manager.last_manual_active_time = time.time() - 35
 
@@ -62,7 +62,7 @@ async def test_manual_mode_timeout_disabled():
 	manager = ChannelManager("127.0.0.1", simulated=True, manual_mode_timeout=0)
 	manager.mode = "manual"
 	manager.manual_app = "app_manual"
-	manager.channels["app_manual"] = asyncio.Queue()
+	manager.app_queues["app_manual"] = asyncio.Queue()
 	manager.last_manual_active_time = time.time() - 100
 
 	task = asyncio.create_task(manager.worker_loop())
