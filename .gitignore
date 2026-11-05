@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.superpowers/
+.pytest_cache
+AGENTS.md
+Notes.md
+docs/superpowers/
+CLAUDE.md
+.cursor/
+.cursorrules
+.opencode/

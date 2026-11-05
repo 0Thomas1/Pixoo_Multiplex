@@ -1,0 +1,217 @@
+import asyncio
+import logging
+from fastapi import HTTPException
+
+from pixoo import Pixoo
+
+from ..commands import DRAWING_COMMANDS, DEVICE_CONTROL_COMMANDS
+from ..models import PixooRequest
+
+logger = logging.getLogger(__name__)
+
+MAX_QUEUE_SIZE = 100
+
+
+class HeadlessSimulator:
+	"""Headless replacement for Pixoo's GUI Simulator to avoid Tkinter blocking in server/CI."""
+
+	def __init__(self, pixoo=None, config=None):
+		pass
+
+	def display(self, buffer, counter):
+		pass
+
+
+class ChannelManager:
+	"""Owns all display state and dispatches PixooCommands to the device.
+
+	Args:
+		pixoo_ip: IP address of the Pixoo64 device. If None, auto-discovers.
+		simulated: Whether to run in simulated mode without hardware.
+	"""
+
+	def __init__(self, pixoo_ip: str | None = None, simulated: bool = False):
+		self.simulated = simulated
+		target_ip = pixoo_ip if pixoo_ip else None
+		if self.simulated:
+			import pixoo.objects.pixoo
+			pixoo.objects.pixoo.Simulator = HeadlessSimulator
+			if not target_ip:
+				target_ip = "127.0.0.1"
+		self.pixoo = Pixoo(target_ip, simulated=simulated)
+		all_commands = DRAWING_COMMANDS + DEVICE_CONTROL_COMMANDS
+		self.commands = {name: getattr(self.pixoo, name) for name in all_commands}
+		self.admin_commands = set(DEVICE_CONTROL_COMMANDS)
+		self.channels = {}       # app_id -> asyncio.Queue[PixooRequest]
+		self.channel_0 = []      # Carousel: ordered list of active app_ids
+		self.urgent_queue = asyncio.Queue()
+		self.interrupt_event = asyncio.Event()
+		self.mode = "manual"   # "carousel" or "manual"
+		self.manual_app = None   # selected app in manual mode
+
+	async def worker_loop(self):
+		"""Main loop: drains urgent queue first, then processes channels based on mode.
+
+		In carousel mode, round-robins through all apps.
+		In manual mode, only processes the selected app.
+
+		Returns:
+			None. Runs indefinitely until cancelled.
+		"""
+		carousel_index = 0
+		while True:
+			# 1. Check for urgent notifications first
+			if not self.urgent_queue.empty():
+				request = await self.urgent_queue.get()
+				self.urgent_queue.task_done()
+				await self.send_to_pixoo(request)
+				await self.sleep_interruptible(request.duration, interruptable=False)
+				if self.channel_0:
+					carousel_index = (carousel_index + 1) % len(self.channel_0)
+				continue
+
+			# 2. Manual mode: only process the selected app
+			if self.mode == "manual" and self.manual_app:
+				queue = self.channels.get(self.manual_app)
+				if queue and not queue.empty():
+					request = await queue.get()
+					queue.task_done()
+					await self.send_to_pixoo(request)
+					await self.sleep_interruptible(request.duration, interruptable=True)
+				else:
+					await asyncio.sleep(1)
+				continue
+
+			# 3. Carousel mode: round-robin through all apps
+			if self.channel_0:
+				current_app = self.channel_0[carousel_index]
+				queue = self.channels[current_app]
+				if not queue.empty():
+					request = await queue.get()
+					queue.task_done()
+					await self.send_to_pixoo(request)
+					await self.sleep_interruptible(request.duration, interruptable=True)
+					carousel_index = (carousel_index + 1) % len(self.channel_0)
+				else:
+					await asyncio.sleep(1)
+			else:
+				await asyncio.sleep(1)
+
+	async def sleep_interruptible(self, duration: int, interruptable: bool):
+		"""Sleep for a duration, optionally waking early on interrupt.
+
+		Args:
+			duration: Seconds to sleep.
+			interruptable: If True, wake early when interrupt_event is set.
+
+		Returns:
+			True if interrupted, False if the full duration elapsed.
+		"""
+		if not interruptable:
+			await asyncio.sleep(duration)
+			return False
+		try:
+			await asyncio.wait_for(self.interrupt_event.wait(), timeout=duration)
+			self.interrupt_event.clear()
+			return True
+		except asyncio.TimeoutError:
+			return False
+
+	async def send_to_pixoo(self, request: PixooRequest):
+		"""Execute all functions in a PixooRequest against the device.
+
+		Args:
+			request: The PixooRequest containing functions to execute.
+
+		Returns:
+			None.
+		"""
+
+		for function in request.functions:
+			if function.name in self.commands:
+				print(f"[{request.app_id}] {function.name}(args={function.args}, kwargs={function.kwargs})")
+				try:
+					await asyncio.to_thread(self.commands[function.name], *function.args, **function.kwargs)
+				except Exception as e:
+					logger.error(f"[{request.app_id}] Error executing {function.name}: {e}")
+			else:
+				print(f"[{request.app_id}] Unknown function: {function.name}")
+
+
+	async def enqueue_request(self, request: PixooRequest):
+		"""Add a PixooRequest to the appropriate app channel.
+
+		Args:
+			request: The PixooRequest to enqueue.
+
+		Returns:
+			Dict with status message and metadata, or error string.
+		"""
+		has_admin = any(f.name in self.admin_commands for f in request.functions)
+		if has_admin and not request.is_admin:
+			raise HTTPException(status_code=403, detail="Device control commands require API key")
+
+		try:
+
+			if request.app_id not in self.channel_0:
+				self.channel_0.append(request.app_id)
+				self.channels[request.app_id] = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
+
+			try:
+				self.channels[request.app_id].put_nowait(request)
+			except asyncio.QueueFull:
+				self.channels[request.app_id].get_nowait()
+				self.channels[request.app_id].task_done()
+				self.channels[request.app_id].put_nowait(request)
+		except Exception as e:
+			return f"Error enqueuing request: {e}"
+		return {"status": "request added to queue", "app_id": request.app_id, "functions_len": len(request.functions)}
+
+	async def enqueue_urgent_request(self, request: PixooRequest):
+		"""Enqueue an urgent request to preempt active frames.
+
+		Args:
+			request: The PixooRequest to enqueue urgently.
+
+		Returns:
+			Dict with status confirmation and metadata.
+		"""
+		await self.urgent_queue.put(request)
+		self.interrupt_event.set()
+		return {"status": "urgent request added to queue", "app_id": request.app_id, "functions_len": len(request.functions)}
+
+	async def switch_channel(self, app_id: str):
+		"""Switch to a specific app (manual mode).
+
+		Args:
+			app_id: The app_id to switch to.
+
+		Returns:
+			Dict with switch confirmation and current mode.
+
+		Raises:
+			ValueError: If the app_id is not in the carousel.
+		"""
+		if app_id not in self.channel_0:
+			raise ValueError(f"App '{app_id}' not in carousel")
+		self.mode = "manual"
+		self.manual_app = app_id
+		return {"status": "switched", "app_id": app_id, "mode": self.mode}
+
+	async def set_mode(self, mode: str):
+		"""Set the display mode.
+
+		Args:
+			mode: "carousel" or "manual".
+
+		Returns:
+			Dict with mode confirmation.
+
+		Raises:
+			ValueError: If mode is not "carousel" or "manual".
+		"""
+		if mode not in ("carousel", "manual"):
+			raise ValueError(f"Invalid mode: {mode}")
+		self.mode = mode
+		self.manual_app = None if mode == "carousel" else self.manual_app
+		return {"status": "mode set", "mode": self.mode}
