@@ -31,8 +31,9 @@ class ChannelManager:
 		simulated: Whether to run in simulated mode without hardware.
 	"""
 
-	def __init__(self, pixoo_ip: str | None = None, simulated: bool = False):
+	def __init__(self, pixoo_ip: str | None = None, simulated: bool = False, manual_mode_timeout: int = 30):
 		self.simulated = simulated
+		self.manual_mode_timeout = manual_mode_timeout
 		target_ip = pixoo_ip if pixoo_ip else None
 		if self.simulated:
 			import pixoo.objects.pixoo
@@ -83,8 +84,8 @@ class ChannelManager:
 					await self.sleep_interruptible(request.duration, interruptable=True)
 					continue
 				else:
-					# Check manual lease timeout (30s)
-					if time.time() - self.last_manual_active_time > 30:
+					# Check manual lease timeout (0 disables auto-revert)
+					if self.manual_mode_timeout > 0 and time.time() - self.last_manual_active_time > self.manual_mode_timeout:
 						logger.info(f"Manual mode lease expired for '{self.manual_app}'. Reverting to carousel.")
 						self.mode = "carousel"
 						self.manual_app = None

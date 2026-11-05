@@ -54,3 +54,25 @@ async def test_manual_mode_auto_reverts_on_idle():
 
 	assert manager.mode == "carousel"
 	assert manager.manual_app is None
+
+
+@pytest.mark.anyio
+async def test_manual_mode_timeout_disabled():
+	# 0 disables auto-revert
+	manager = ChannelManager("127.0.0.1", simulated=True, manual_mode_timeout=0)
+	manager.mode = "manual"
+	manager.manual_app = "app_manual"
+	manager.channels["app_manual"] = asyncio.Queue()
+	manager.last_manual_active_time = time.time() - 100
+
+	task = asyncio.create_task(manager.worker_loop())
+	await asyncio.sleep(0.2)
+	task.cancel()
+	try:
+		await task
+	except asyncio.CancelledError:
+		pass
+
+	# Mode should still be manual because timeout is 0
+	assert manager.mode == "manual"
+	assert manager.manual_app == "app_manual"

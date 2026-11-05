@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
 
-> A high-performance FastAPI display server and multiplexer for the 64x64 Divoom Pixoo 64 LED display. Enables multiple applications, home automations, and scripts to share a single display through round-robin carousel scheduling, manual channel locking, and priority alert preemption.
+> A high-performance FastAPI display server and multiplexer for the 64x64 Divoom Pixoo 64 LED display. Enables multiple applications, home automations, and scripts to share a single display through round-robin carousel scheduling, manual channel locking, and priority alert preemption. Designed for ambient dashboards, periodic data tickers, and alert notifications.
 
 ---
 
@@ -32,8 +32,8 @@ The Divoom Pixoo 64 is a popular display for homelabs and desktop dashboards. Ho
 
 | Native Pixoo 64 WebAPI Limitation | How Pixoo Multiplex Solves It |
 |---|---|
-| **No Multi-Source Support**: Multiple apps sending draw calls interleave and tear pixels. | **Virtual Channels**: Each app gets its own isolated, bounded queue (`maxsize=100`). |
-| **No Scheduling**: Last HTTP request wins; no native app rotation or display duration. | **Fair Carousel**: Round-robins across active apps based on requested duration. |
+| **No Multi-Source Support**: Multiple apps sending draw calls interleave and tear pixels. | **Virtual Channels**: Plug-and-play: each app dynamically registers on its first push and receives an isolated queue (`maxsize=100`). |
+| **No Scheduling**: Last HTTP request wins; no native app rotation or display duration. | **Fair Carousel**: Round-robins across active apps based on requested duration; skips idle queues without stalling and retains the latest frame. |
 | **No Preemption**: Can't show urgent alerts (doorbells, alarms) without killing background scripts. | **Instant Preemption**: Priority alerts immediately preempt the screen and resume carousel. |
 | **Torn Frames**: Drawing happens command-by-command over the network. | **Atomic Frame Pushes**: `PixooClient` buffers commands locally and pushes full frames at once. |
 | **Requires Hardware for Dev**: Startup blocks on LAN discovery if hardware is unreachable. | **Hermetic Simulation**: Run offline in CI or local dev without hardware or GUI popups. |
@@ -42,12 +42,20 @@ The Divoom Pixoo 64 is a popular display for homelabs and desktop dashboards. Ho
 
 ## Running the Server
 
+### Configuration
+
+Edit `.env` to configure your connection and security settings:
+
+| Variable | Default | Description |
+|---|---|---|
+| `PIXOO_IP` | `None` | Device IP address on LAN. If unset and `PIXOO_SIMULATED=false`, auto-discovers via ARP/UDP subnet scan. |
+| `PIXOO_SIMULATED` | `false` | When `true`, runs in headless simulation mode without physical hardware or GUI windows. |
+| `API_KEY` | `None` | Secret key required for admin endpoints, urgent frames, and device controls. If unset on server, admin endpoints fail closed with 403. |
+| `MANUAL_MODE_TIMEOUT` | `30` | Inactivity timeout in seconds before manual mode auto-reverts to carousel (set to `0` to disable). |
+| `CORS_ORIGINS` | `["*"]` | Allowed CORS origins list. |
+| `LOG_LEVEL` | `"INFO"` | Logging verbosity level. |
+
 ### With Physical Hardware
-Configure `.env`:
-```env
-PIXOO_IP=192.168.1.100  # Leave empty for automatic LAN discovery
-API_KEY=your-secret-key
-```
 Start the service:
 ```bash
 ./.venv/bin/python -m uvicorn src.main:app --port 8000
@@ -99,7 +107,7 @@ admin.set_mode("carousel")                  # Resume round-robin rotation
 ./.venv/bin/python examples/simulated_demo.py
 
 # 2. Interactive Physical Demo (CAD/USD Exchange Rate & Temperature in °C)
-# Live keyboard controls: [C] Carousel, [1] CAD/USD, [2] Temp, [U] Urgent Alert
+# Live keyboard controls: [C] Carousel, [1] CAD/USD, [2] Temp, [U] Urgent Alert, [Q] Quit (gracefully restores clock face)
 ./.venv/bin/python examples/physical_demo.py
 ```
 
@@ -112,7 +120,7 @@ admin.set_mode("carousel")                  # Resume round-robin rotation
 | `GET` | `/health` | None | Liveness healthcheck (`{"status": "ok"}`). |
 | `GET` | `/api/v1/status` | None | Active channels, carousel order, display mode, queue size. |
 | `POST` | `/api/v1/request` | Optional | Enqueue a frame. Set `urgent: true` for preemption (requires key). |
-| `POST` | `/api/v1/channel/switch` | `X-API-Key` | Lock display to a specific `app_id` in manual mode. |
+| `POST` | `/api/v1/channel/switch` | `X-API-Key` | Lock display to a specific `app_id` in manual mode (auto-reverts to carousel after `MANUAL_MODE_TIMEOUT`s of inactivity). |
 | `POST` | `/api/v1/mode/set` | `X-API-Key` | Set mode to `"carousel"` or `"manual"`. |
 
 ---
@@ -141,7 +149,7 @@ src/
   models.py            # Pydantic schemas (PixooRequest, Function)
   client.py            # PixooClient with fluent buffering & immediate controls
   commands.py          # Command allowlists (DRAWING_COMMANDS, DEVICE_CONTROL_COMMANDS)
-  config.py            # Settings loader (PIXOO_IP, PIXOO_SIMULATED, API_KEY)
+  config.py            # Settings loader (PIXOO_IP, PIXOO_SIMULATED, API_KEY, MANUAL_MODE_TIMEOUT)
   dependencies.py      # Dependency injection & API key verification
   services/
     channel_manager.py # State machine, queue manager, worker loop, HeadlessSimulator
@@ -149,6 +157,7 @@ examples/
   simulated_demo.py    # Self-contained automated demonstration
   physical_demo.py     # Interactive dual-app demonstration (CAD/USD & Temp C)
 tests/
+  test_carousel_scheduling.py # Fair carousel skipping & idle lease verification
   test_auth_standards.py     # 401/403 status code verification
   test_urgent_preemption.py  # Urgent priority preemption verification
   test_client_buffering.py   # Client buffering & frame atomicity verification

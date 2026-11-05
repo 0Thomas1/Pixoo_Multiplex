@@ -26,7 +26,11 @@ async def lifespan(app: FastAPI):
 	Returns:
 		Async context manager yielding control to the app.
 	"""
-	manager = ChannelManager(settings.pixoo_ip, simulated=settings.pixoo_simulated)
+	manager = ChannelManager(
+		settings.pixoo_ip,
+		simulated=settings.pixoo_simulated,
+		manual_mode_timeout=settings.manual_mode_timeout,
+	)
 	app.state.manager = manager
 	task = asyncio.create_task(manager.worker_loop())
 	logger.info("Worker loop started")

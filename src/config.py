@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 	cors_origins: list[str] = ["*"]
 	log_level: str = "INFO"
 	api_key: str | None = None
+	manual_mode_timeout: int = 30
 
 	class Config:
 		env_file = ".env"
