@@ -24,7 +24,8 @@ async def test_disconnect_purges_queue_and_unregisters():
 	assert res["status"] == "disconnected"
 	assert res["purged_frames"] == 5
 	assert "app_purge" not in manager.carousel_apps
-	assert manager.app_queues["app_purge"].empty()
+	assert "app_purge" not in manager.app_queues
+	assert "app_purge" not in manager.last_app_activity
 
 
 @pytest.mark.anyio
@@ -73,5 +74,16 @@ def test_client_disconnect_api_and_context_manager():
 
 			status2 = test_client.get("/api/v1/status").json()
 			assert "client_app" not in status2["carousel"]
+			assert "client_app" not in status2["channels"]
 	finally:
 		settings.pixoo_simulated = orig_sim
+
+
+def test_client_disconnect_warns_on_failure(caplog):
+	import logging
+	client = PixooClient("fail_app", "localhost", 59999)  # unreachable port
+	with caplog.at_level(logging.WARNING):
+		res = client.disconnect()
+		assert not res.success
+		assert any("disconnect failed" in record.message.lower() for record in caplog.records)
+

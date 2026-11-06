@@ -89,6 +89,7 @@ class PhysicalDemoRunner:
 		self.temp_client = PixooClient("temp_c_app", host, port, api_key=api_key)
 		self.admin_client = PixooClient("admin_demo", host, port, api_key=api_key)
 		self.running = True
+		self.feed_thread: threading.Thread | None = None
 
 	def send_cad_usd_frame(self):
 		"""Assemble and send atomic CAD/USD exchange rate frame."""
@@ -180,8 +181,8 @@ class PhysicalDemoRunner:
 		print("Display mode set to: Carousel (alternating every 4s)")
 
 		# Start background producer
-		feed_thread = threading.Thread(target=self.background_feed_loop, daemon=True)
-		feed_thread.start()
+		self.feed_thread = threading.Thread(target=self.background_feed_loop, daemon=True)
+		self.feed_thread.start()
 
 		print("\nInteractive Controls:")
 		print("  [C] Carousel Mode (Round-robin both apps)")
@@ -220,10 +221,14 @@ class PhysicalDemoRunner:
 			print("\nDemo interrupted by user.")
 		finally:
 			self.running = False
+			if self.feed_thread and self.feed_thread.is_alive():
+				self.feed_thread.join(timeout=1.5)
 			print("Disconnecting apps, purging pending queues, and restoring clock face...")
 			try:
-				self.cad_client.disconnect()
-				self.temp_client.disconnect(clear_screen=True)
+				r1 = self.cad_client.disconnect()
+				r2 = self.temp_client.disconnect(clear_screen=True)
+				if not (r1.success and r2.success):
+					print(f"⚠️ Warning: Server did not acknowledge disconnect (CAD: {r1.status_code}, Temp: {r2.status_code})")
 			except Exception as e:
 				print(f"Disconnect error: {e}")
 			print("Demo ended.")

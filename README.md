@@ -59,13 +59,13 @@ Edit `.env` to configure your connection and security settings:
 ### With Physical Hardware
 Start the service:
 ```bash
-./.venv/bin/python -m uvicorn src.main:app --port 8000
+./.venv/bin/python -m uvicorn src.main:app --port 8000 --reload
 ```
 
 ### Offline / Simulation Mode (No Hardware Needed)
 Run completely offline with our headless mock (no network scans, no Tkinter GUI windows):
 ```bash
-PIXOO_SIMULATED=true ./.venv/bin/python -m uvicorn src.main:app --port 8000
+PIXOO_SIMULATED=true ./.venv/bin/python -m uvicorn src.main:app --port 8000 --reload
 ```
 
 ---

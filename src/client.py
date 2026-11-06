@@ -1,8 +1,11 @@
+import logging
 import requests
 from dataclasses import dataclass
 from typing import Any
 
 from .models import PixooRequest, Function
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -109,11 +112,18 @@ class PixooClient:
 		Returns:
 			ClientResult with server disconnect confirmation.
 		"""
-		return self._request(
-			"POST",
-			"/api/v1/channel/disconnect",
-			params={"app_id": self.appid, "clear_screen": clear_screen},
-		)
+		try:
+			res = self._request(
+				"POST",
+				"/api/v1/channel/disconnect",
+				params={"app_id": self.appid, "clear_screen": clear_screen},
+			)
+			if not res.success:
+				logger.warning(f"[{self.appid}] Disconnect failed with HTTP {res.status_code}: {res.data}")
+			return res
+		except Exception as e:
+			logger.warning(f"[{self.appid}] Disconnect failed: {e}")
+			return ClientResult(success=False, status_code=0, data=str(e))
 
 	def __enter__(self) -> "PixooClient":
 		return self

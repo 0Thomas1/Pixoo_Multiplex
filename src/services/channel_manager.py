@@ -245,6 +245,9 @@ class ChannelManager:
 		if app_id in self.carousel_apps:
 			self.carousel_apps.remove(app_id)
 
+		self.app_queues.pop(app_id, None)
+		self.last_app_activity.pop(app_id, None)
+
 		if self.manual_app == app_id:
 			self.manual_app = None
 			self.mode = "carousel"
