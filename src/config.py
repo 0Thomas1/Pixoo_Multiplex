@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 	log_level: str = "INFO"
 	api_key: str | None = None
 	manual_mode_timeout: int = 30
+	app_inactivity_timeout: int = 30
 
 	class Config:
 		env_file = ".env"

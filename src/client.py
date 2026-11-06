@@ -100,6 +100,27 @@ class PixooClient:
 		"""
 		return self._request("POST", "/api/v1/mode/set", params={"mode": mode})
 
+	def disconnect(self, clear_screen: bool = False) -> ClientResult:
+		"""Send disconnect signal to purge pending queue and unregister from carousel.
+
+		Args:
+			clear_screen: If True, reset display to native clock channel.
+
+		Returns:
+			ClientResult with server disconnect confirmation.
+		"""
+		return self._request(
+			"POST",
+			"/api/v1/channel/disconnect",
+			params={"app_id": self.appid, "clear_screen": clear_screen},
+		)
+
+	def __enter__(self) -> "PixooClient":
+		return self
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		self.disconnect()
+
 	def _send_command(self, name: str, *args, **kwargs) -> ClientResult:
 		"""Build and send a single-function PixooRequest.
 

@@ -52,6 +52,7 @@ Edit `.env` to configure your connection and security settings:
 | `PIXOO_SIMULATED` | `false` | When `true`, runs in headless simulation mode without physical hardware or GUI windows. |
 | `API_KEY` | `None` | Secret key required for admin endpoints, urgent frames, and device controls. If unset on server, admin endpoints fail closed with 403. |
 | `MANUAL_MODE_TIMEOUT` | `30` | Inactivity timeout in seconds before manual mode auto-reverts to carousel (set to `0` to disable). |
+| `APP_INACTIVITY_TIMEOUT` | `30` | Seconds before an idle/crashed app is purged from the queue and unmerged from carousel (set to `0` to disable). |
 | `CORS_ORIGINS` | `["*"]` | Allowed CORS origins list. |
 | `LOG_LEVEL` | `"INFO"` | Logging verbosity level. |
 
@@ -98,6 +99,17 @@ admin.switch_channel("weather_app")         # Lock display to weather_app (Manua
 admin.set_mode("carousel")                  # Resume round-robin rotation
 ```
 
+### 4. Clean Disconnect & Context Manager
+Unregister your app and purge all pending frames upon shutdown:
+```python
+# Explicit disconnect (clear_screen=True restores clock face if no other apps remain)
+client.disconnect(clear_screen=True)
+
+# Or use as a context manager (auto-disconnects on block exit)
+with PixooClient("weather_app", "localhost", 8000) as client:
+    client.clear().fill_rgb(0, 100, 0).push()
+```
+
 ---
 
 ## Included Demos
@@ -122,6 +134,7 @@ admin.set_mode("carousel")                  # Resume round-robin rotation
 | `POST` | `/api/v1/request` | Optional | Enqueue a frame. Set `urgent: true` for preemption (requires key). |
 | `POST` | `/api/v1/channel/switch` | `X-API-Key` | Lock display to a specific `app_id` in manual mode (auto-reverts to carousel after `MANUAL_MODE_TIMEOUT`s of inactivity). |
 | `POST` | `/api/v1/mode/set` | `X-API-Key` | Set mode to `"carousel"` or `"manual"`. |
+| `POST` | `/api/v1/channel/disconnect` | None | Purge pending frames and unregister app from carousel (accepts `clear_screen=true`). |
 
 ---
 
@@ -145,11 +158,11 @@ admin.set_mode("carousel")                  # Resume round-robin rotation
 ```
 src/
   main.py              # Application factory, lifespan, and /health
-  router.py            # API routes (/status, /request, /channel/switch, /mode/set)
+  router.py            # API routes (/status, /request, /channel/switch, /mode/set, /channel/disconnect)
   models.py            # Pydantic schemas (PixooRequest, Function)
-  client.py            # PixooClient with fluent buffering & immediate controls
+  client.py            # PixooClient with fluent buffering, immediate controls, and disconnect
   commands.py          # Command allowlists (DRAWING_COMMANDS, DEVICE_CONTROL_COMMANDS)
-  config.py            # Settings loader (PIXOO_IP, PIXOO_SIMULATED, API_KEY, MANUAL_MODE_TIMEOUT)
+  config.py            # Settings loader (PIXOO_IP, PIXOO_SIMULATED, API_KEY, timeouts)
   dependencies.py      # Dependency injection & API key verification
   services/
     channel_manager.py # State machine, queue manager, worker loop, HeadlessSimulator
@@ -157,6 +170,7 @@ examples/
   simulated_demo.py    # Self-contained automated demonstration
   physical_demo.py     # Interactive dual-app demonstration (CAD/USD & Temp C)
 tests/
+  test_disconnect.py         # App disconnect & queue purge verification
   test_carousel_scheduling.py # Fair carousel skipping & idle lease verification
   test_auth_standards.py     # 401/403 status code verification
   test_urgent_preemption.py  # Urgent priority preemption verification

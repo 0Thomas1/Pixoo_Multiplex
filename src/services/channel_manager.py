@@ -31,9 +31,10 @@ class ChannelManager:
 		simulated: Whether to run in simulated mode without hardware.
 	"""
 
-	def __init__(self, pixoo_ip: str | None = None, simulated: bool = False, manual_mode_timeout: int = 30):
+	def __init__(self, pixoo_ip: str | None = None, simulated: bool = False, manual_mode_timeout: int = 30, app_inactivity_timeout: int = 30):
 		self.simulated = simulated
 		self.manual_mode_timeout = manual_mode_timeout
+		self.app_inactivity_timeout = app_inactivity_timeout
 		target_ip = pixoo_ip if pixoo_ip else None
 		if self.simulated:
 			import pixoo.objects.pixoo
@@ -50,6 +51,7 @@ class ChannelManager:
 		self.mode = "carousel"   # "carousel" or "manual"
 		self.manual_app = None   # selected app in manual mode
 		self.last_manual_active_time = time.time()
+		self.last_app_activity = {}  # app_id -> timestamp
 
 	# Backward-compatibility property aliases
 	@property
@@ -71,6 +73,14 @@ class ChannelManager:
 		"""
 		carousel_index = 0
 		while True:
+			# Auto-prune apps that have stopped sending frames (crashed/disconnected)
+			if self.app_inactivity_timeout > 0 and self.carousel_apps:
+				now = time.time()
+				for app in list(self.carousel_apps):
+					if now - self.last_app_activity.get(app, now) > self.app_inactivity_timeout:
+						logger.info(f"App '{app}' inactive for >{self.app_inactivity_timeout}s. Auto-disconnecting.")
+						await self.disconnect_app(app, clear_screen=False)
+
 			# 1. Check for urgent notifications first
 			if not self.urgent_queue.empty():
 				request = await self.urgent_queue.get()
@@ -181,6 +191,7 @@ class ChannelManager:
 		if has_admin and not request.is_admin:
 			raise HTTPException(status_code=403, detail="Device control commands require API key")
 
+		self.last_app_activity[request.app_id] = time.time()
 		try:
 			if request.app_id not in self.carousel_apps:
 				self.carousel_apps.append(request.app_id)
@@ -205,9 +216,56 @@ class ChannelManager:
 		Returns:
 			Dict with status confirmation and metadata.
 		"""
+		self.last_app_activity[request.app_id] = time.time()
 		await self.urgent_queue.put(request)
 		self.interrupt_event.set()
 		return {"status": "urgent request added to queue", "app_id": request.app_id, "functions_len": len(request.functions)}
+
+	async def disconnect_app(self, app_id: str, clear_screen: bool = False):
+		"""Disconnect an app, purging its queue and unregistering it from the carousel.
+
+		Args:
+			app_id: The application identifier to disconnect.
+			clear_screen: If True, reset display to native clock channel.
+
+		Returns:
+			Dict with disconnect confirmation and status.
+		"""
+		purged_count = 0
+		queue = self.app_queues.get(app_id)
+		if queue:
+			while not queue.empty():
+				try:
+					queue.get_nowait()
+					queue.task_done()
+					purged_count += 1
+				except (asyncio.QueueEmpty, ValueError):
+					break
+
+		if app_id in self.carousel_apps:
+			self.carousel_apps.remove(app_id)
+
+		if self.manual_app == app_id:
+			self.manual_app = None
+			self.mode = "carousel"
+
+		# If clear_screen requested or all apps have disconnected
+		if clear_screen or not self.carousel_apps:
+			self.interrupt_event.set()
+			try:
+				cmd = self.commands.get("set_channel")
+				if cmd:
+					await asyncio.to_thread(cmd, 0)
+			except Exception as e:
+				logger.error(f"Error resetting display channel on disconnect: {e}")
+
+		logger.info(f"[{app_id}] Disconnected. Purged {purged_count} pending frames. Remaining apps: {self.carousel_apps}")
+		return {
+			"status": "disconnected",
+			"app_id": app_id,
+			"purged_frames": purged_count,
+			"remaining_apps": list(self.carousel_apps),
+		}
 
 	async def switch_channel(self, app_id: str):
 		"""Switch to a specific app (manual mode).

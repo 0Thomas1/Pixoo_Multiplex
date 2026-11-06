@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
 		settings.pixoo_ip,
 		simulated=settings.pixoo_simulated,
 		manual_mode_timeout=settings.manual_mode_timeout,
+		app_inactivity_timeout=settings.app_inactivity_timeout,
 	)
 	app.state.manager = manager
 	task = asyncio.create_task(manager.worker_loop())

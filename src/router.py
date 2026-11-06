@@ -102,3 +102,22 @@ async def set_mode(
 		return await manager.set_mode(mode)
 	except ValueError as e:
 		raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/channel/disconnect")
+async def disconnect_channel(
+	app_id: str,
+	clear_screen: bool = False,
+	manager: ChannelManager = Depends(get_manager),
+):
+	"""Disconnect an application, purging pending frames and unregistering from carousel.
+
+	Args:
+		app_id: The application identifier to disconnect.
+		clear_screen: If True, reset display to native clock channel.
+		manager: Injected ChannelManager instance.
+
+	Returns:
+		Dict with disconnect confirmation and status.
+	"""
+	return await manager.disconnect_app(app_id, clear_screen=clear_screen)

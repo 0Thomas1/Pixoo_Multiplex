@@ -151,7 +151,21 @@ class PhysicalDemoRunner:
 		print("=" * 60)
 		print("       PIXOO MULTIPLEX PHYSICAL DEMO")
 		print("=" * 60)
-		print(f"Connecting to Multiplex server at {self.host}:{self.port}")
+		print(f"Connecting to Multiplex server at {self.host}:{self.port}...")
+
+		# Pre-flight check: verify server is running
+		try:
+			resp = requests.get(f"http://{self.host}:{self.port}/health", timeout=1.5)
+			if not resp.ok:
+				raise ConnectionError()
+		except Exception:
+			print(f"\n❌ [ERROR] Cannot connect to Pixoo Multiplex server at http://{self.host}:{self.port}")
+			print("Please start the server first in another terminal:")
+			print("    ./.venv/bin/python -m uvicorn src.main:app --port 8000")
+			print("Or in simulated mode:")
+			print("    SIMULATION=true ./.venv/bin/python -m uvicorn src.main:app --port 8000\n")
+			return
+
 		print("App 1: CAD to USD Exchange Rate ('cad_usd_app')")
 		print("App 2: Current Temperature in °C ('temp_c_app')")
 		print("-" * 60)
@@ -206,12 +220,12 @@ class PhysicalDemoRunner:
 			print("\nDemo interrupted by user.")
 		finally:
 			self.running = False
-			print("Restoring display to native clock face...")
+			print("Disconnecting apps, purging pending queues, and restoring clock face...")
 			try:
-				self.admin_client.set_mode("carousel")
-				self.admin_client.set_channel(0)
+				self.cad_client.disconnect()
+				self.temp_client.disconnect(clear_screen=True)
 			except Exception as e:
-				print(f"Cleanup error: {e}")
+				print(f"Disconnect error: {e}")
 			print("Demo ended.")
 
 
